@@ -25,3 +25,6 @@ pub mod lifecycle {
         bail!("host lifecycle requires Linux or macOS")
     }
 }
+
+#[cfg(unix)]
+pub mod mining;

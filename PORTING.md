@@ -55,7 +55,7 @@ the CLI validates the declarative topology before startup, and the daemon resolv
 Remaining complete Swift CLI scope:
 
 - `wipe`, foreground crash supervision and service role selection.
-- `mine` coordinator/worker process lifecycle and declared recipient plans.
+- Mining service integration and automatic crash supervision.
 - `child` add/remove and remote-author flows; hosted spec/premine/genesis/policy
   files already translate into daemon configuration, but dynamic reconciliation
   currently restarts the node rather than calling the hosted-chain endpoint.
@@ -82,7 +82,7 @@ crash supervisor yet. `down` allows 30 seconds before SIGKILL.
 The topology model covers the pinned Swift schema and validation, but rejects
 unknown nested mining fields more strictly. Unsupported websocket, external
 address, serving/acquisition limits, and nonzero finality options fail explicitly
-rather than being dropped. Mining declarations are parsed but do not start miners.
+rather than being dropped. `up` does not start miners; use the explicit `mine` commands.
 Overlay listening defaults to loopback; use `--listen-host 0.0.0.0` explicitly
 for external peers. Absent peer configuration uses pinned public bootstrap peers;
 `init --no-default-peers` creates an isolated explicit empty list.
@@ -103,3 +103,39 @@ fail closed until restored. Initialization installs nested Git ignore guards in
 managed identity/state/runtime/log directories before generating secrets; these
 cannot remove secrets already tracked by Git. The lifecycle harness checks these
 exclusions, missing-key refusal and live identity replacement.
+
+## Mining lifecycle slice
+
+`mine start/run/stop/status` uses `lattice-mining-rs` Coordinator, HttpNodeClient,
+CpuWorker and ProcessWorker directly. No duplicate nonce coordinator is introduced.
+Declared recipients and minimum-work requests use the shared template parser;
+recipient addresses additionally require canonical standard CIDs and paths must
+belong to the declared hosted tree. Worker count is bounded at 1024. CPU workers
+are in-process rather than Swift's separate default `lattice-miner` executable.
+External workers use the production bounded JSON process-worker protocol.
+
+Each round observes a positive template expiry using the same plan as the real
+round. Its deadline is `(expiry + min(longest completed round, expiry)) * multiplier`.
+Completed failure/deadline rounds do not increase the measured bound. Parent
+acceptance applies declared pacing; child-only submission does not start a hold.
+Retries, probes, pacing and active work respond to SIGINT/SIGTERM; worker teardown
+uses the shared coordinator cancellation and process-group guard. The CLI retries
+node/worker failures without creating overlapping rounds. Cookie files are read
+per request, allowing a node restart without restarting the miner.
+
+A separate exclusive miner-owner lease prevents concurrent foreground/background
+loops, and miner PID records reuse kernel birth/executable ownership checks.
+Status displays the currently configured plan; edits apply after stop/start.
+There is no crash supervisor or service integration yet. Forced SIGKILL of the
+miner bypasses Rust destructors, so process-worker descendants cannot be promised
+cleanup in that case. Graceful cancellation is exercised, including a wedged
+process worker. Mining uses no private wallet key.
+
+`python3.12 tools/mining-integration.py` copies immutable CLI/node binaries into
+an isolated temporary host with public peers forbidden. It verifies actual CPU
+reward delivery to a generated disposable address, minimum-work plans, duplicate
+start refusal, cookie recovery across node restart, pacing/offline/busy-CPU
+cancellation, process-worker descendant teardown, and foreground single-round
+operation. Binary hashes are recorded in `target/mining-integration.json`.
+Unit tests cover plan refusal and deadline clamping. This does not establish full
+Swift process supervision equivalence or a formal proof of OS lifecycle behavior.

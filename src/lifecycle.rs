@@ -1,7 +1,7 @@
 //! Local operator lifecycle. PID records include kernel process birth identity.
 mod config;
-mod files;
-mod process;
+pub(crate) mod files;
+pub(crate) mod process;
 use crate::topology::{ChainPeers, Topology};
 use anyhow::{Context, Result, ensure};
 use files::Layout;
@@ -82,20 +82,20 @@ pub fn identity(root: &Path) -> Result<Value> {
     let _lock = layout.lock()?;
     Ok(json!({"publicKey":files::identity(&layout, false)?}))
 }
-async fn stop(record: &Record) -> Result<bool> {
-    if !process::signal(&record.process, libc::SIGTERM)? {
+pub(crate) async fn stop_process(identity: &process::ProcessIdentity) -> Result<bool> {
+    if !process::signal(identity, libc::SIGTERM)? {
         return Ok(false);
     }
     let deadline = Instant::now() + Duration::from_secs(30);
-    while process::matches(&record.process)? {
+    while process::matches(identity)? {
         if Instant::now() >= deadline {
-            process::signal(&record.process, libc::SIGKILL)?;
+            process::signal(identity, libc::SIGKILL)?;
             break;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let deadline = Instant::now() + Duration::from_secs(5);
-    while process::matches(&record.process)? {
+    while process::matches(identity)? {
         ensure!(Instant::now() < deadline, "process did not stop");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
@@ -109,7 +109,7 @@ pub async fn down(root: &Path) -> Result<Value> {
     }
     let bytes = files::read(&layout.pid(), 1024 * 1024)?;
     let record: Record = serde_json::from_slice(&bytes)?;
-    let stopped = stop(&record).await?;
+    let stopped = stop_process(&record.process).await?;
     files::remove_if_unchanged(&layout.pid(), &bytes)?;
     Ok(json!({"stopped":stopped}))
 }
@@ -137,7 +137,7 @@ pub async fn up(root: &Path, node_binary: &Path, listen_host: IpAddr) -> Result<
             {
                 return Ok(json!({"running":true,"started":false,"pid":record.process.pid}));
             }
-            stop(&record).await?;
+            stop_process(&record.process).await?;
         }
         files::remove_if_unchanged(&layout.pid(), &bytes)?;
     }

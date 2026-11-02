@@ -29,6 +29,11 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Command {
+    #[cfg(unix)]
+    Mine {
+        #[command(subcommand)]
+        command: MineCommand,
+    },
     /// Initialize local topology and a private overlay identity.
     Init {
         #[arg(long, default_value_t = 4001)]
@@ -66,6 +71,20 @@ enum Command {
         #[command(subcommand)]
         command: TxCommand,
     },
+}
+
+#[cfg(unix)]
+#[derive(Subcommand)]
+enum MineCommand {
+    Start,
+    Run {
+        #[arg(long)]
+        once: bool,
+        #[arg(long, hide = true)]
+        managed: bool,
+    },
+    Stop,
+    Status,
 }
 #[derive(Subcommand)]
 enum KeyCommand {
@@ -202,6 +221,17 @@ async fn main() {
 }
 async fn run(cli: Cli) -> Result<()> {
     match &cli.command {
+        #[cfg(unix)]
+        Command::Mine { command } => {
+            return match command {
+                MineCommand::Start => output(&lattice_ctl::mining::start(&cli.root).await?),
+                MineCommand::Run { once, managed } => {
+                    lattice_ctl::mining::run(&cli.root, *once, *managed).await
+                }
+                MineCommand::Stop => output(&lattice_ctl::mining::stop(&cli.root).await?),
+                MineCommand::Status => output(&lattice_ctl::mining::status(&cli.root)?),
+            };
+        }
         Command::Init {
             listen,
             rpc_port,
@@ -261,6 +291,8 @@ async fn run(cli: Cli) -> Result<()> {
         &cli.chain,
     )?;
     match cli.command {
+        #[cfg(unix)]
+        Command::Mine { .. } => unreachable!(),
         Command::Key { .. }
         | Command::Init { .. }
         | Command::Identity

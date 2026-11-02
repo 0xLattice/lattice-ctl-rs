@@ -60,10 +60,32 @@ Local host lifecycle (Linux/macOS):
 ```
 
 `up` is serialized and idempotent; config changes restart the owned process.
-It currently starts a detached daemon without crash supervision. Mining commands,
-service units and wipe remain pending; see `PORTING.md` for precise differences.
+It currently starts a detached daemon without crash supervision. Service units, crash supervision and wipe remain pending; see `PORTING.md` for precise differences.
 
 Keep host data outside source checkouts. Initialization also installs Git ignore
 guards inside managed identity/state/runtime/log directories; these do not remove
 secrets that were already tracked. Only `init` creates an overlay key. Restore a
 missing identity from backup; `up` and `identity` never silently replace it.
+
+Mining uses the shared Rust coordinator, with CPU workers by default. Add a
+`mine` object to the host's `lattice.json`, for example:
+
+```json
+{"worker":"cpu","workers":2,"batchSize":100000,"recipients":{"Nexus":"ADDRESS"},"minWork":{"Nexus":"1"},"minBlockIntervalSeconds":2}
+```
+
+Replace `ADDRESS` with a valid public Lattice address. Unconfigured chains burn
+rewards and fees. Mining only reads the node cookie and public recipient plan;
+it never needs a wallet private key.
+
+```sh
+./target/debug/lattice --root "$HOME/.local/share/lattice" mine start
+./target/debug/lattice --root "$HOME/.local/share/lattice" mine status
+./target/debug/lattice --root "$HOME/.local/share/lattice" mine stop
+./target/debug/lattice --root "$HOME/.local/share/lattice" mine run --once
+```
+
+`mine run` is foreground and responds to SIGINT/SIGTERM. `mine start` runs it in
+the background with a private `log/mine.log`; duplicate starts fail. Stop/start
+to apply edited mining settings. An executable `mine.worker` path selects the
+shared process-worker protocol; relative paths resolve against the host root.
