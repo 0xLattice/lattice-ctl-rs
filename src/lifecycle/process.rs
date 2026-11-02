@@ -76,9 +76,23 @@ fn platform(pid: i32) -> Result<Option<ProcessIdentity>> {
     let executable = std::fs::read_link(format!("{path}/exe"))?
         .to_string_lossy()
         .into_owned();
+    let boot = std::fs::read_to_string("/proc/sys/kernel/random/boot_id")?;
+    let boot = boot.trim();
+    ensure!(
+        boot.len() == 36
+            && boot
+                .bytes()
+                .enumerate()
+                .all(|(i, b)| if [8, 13, 18, 23].contains(&i) {
+                    b == b'-'
+                } else {
+                    b.is_ascii_hexdigit()
+                }),
+        "invalid kernel boot identity"
+    );
     Ok(Some(ProcessIdentity {
         pid,
-        birth: fields[19].into(),
+        birth: format!("{boot}:{}", fields[19]),
         executable,
     }))
 }
@@ -153,6 +167,14 @@ mod linux_tests {
             .spawn()
             .unwrap();
         let identity = inspect(child.id() as i32).unwrap().unwrap();
+        let mut other_boot = identity.clone();
+        let (_, ticks) = identity
+            .birth
+            .split_once(':')
+            .expect("boot identity is recorded");
+        other_boot.birth = format!("00000000-0000-0000-0000-000000000000:{ticks}");
+        assert!(!signal(&other_boot, libc::SIGTERM).unwrap());
+        assert!(child.try_wait().unwrap().is_none());
         let mut stale = identity.clone();
         stale.birth.push_str("-stale");
         assert!(!signal(&stale, libc::SIGTERM).unwrap());

@@ -199,3 +199,18 @@ pub fn finish_topology(layout: &Layout, topology: &crate::topology::Topology) ->
     File::open(layout.root.join("run"))?.sync_all()?;
     Ok(())
 }
+
+pub fn supervisor_lease(layout: &Layout) -> Result<File> {
+    layout.ensure("run")?;
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(layout.root.join("run/supervisor.lock"))?;
+    file.try_lock_exclusive()
+        .map_err(|_| anyhow::anyhow!("a foreground supervisor owns this host; stop it first"))?;
+    Ok(file)
+}

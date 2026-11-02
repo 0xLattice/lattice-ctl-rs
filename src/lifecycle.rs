@@ -116,6 +116,13 @@ pub async fn down(root: &Path) -> Result<Value> {
     Ok(json!({"stopped":stopped}))
 }
 pub async fn up(root: &Path, node_binary: &Path, listen_host: IpAddr) -> Result<Value> {
+    Ok(up_owned(root, node_binary, listen_host).await?.0)
+}
+async fn up_owned(
+    root: &Path,
+    node_binary: &Path,
+    listen_host: IpAddr,
+) -> Result<(Value, process::ProcessIdentity)> {
     let layout = Layout::open(root)?;
     let _lock = layout.lock()?;
     for directory in ["log", "chains/Nexus", "specs"] {
@@ -140,7 +147,10 @@ pub async fn up(root: &Path, node_binary: &Path, listen_host: IpAddr) -> Result<
                 && record.public_key.as_ref() == Some(&public_key)
             {
                 files::finish_topology(&layout, &topology)?;
-                return Ok(json!({"running":true,"started":false,"pid":record.process.pid}));
+                return Ok((
+                    json!({"running":true,"started":false,"pid":record.process.pid}),
+                    record.process,
+                ));
             }
             stop_process(&record.process).await?;
         }
@@ -222,8 +232,131 @@ pub async fn up(root: &Path, node_binary: &Path, listen_host: IpAddr) -> Result<
     std::thread::spawn(move || {
         let _ = child.wait();
     });
-    Ok(json!({"running":true,"started":true,"pid":pid}))
+    Ok((
+        json!({"running":true,"started":true,"pid":pid}),
+        record.process,
+    ))
 }
+/// Foreground owner: keep one node alive and stop it on SIGINT/SIGTERM.
+pub async fn supervise(root: &Path, node_binary: &Path, listen_host: IpAddr) -> Result<()> {
+    let layout = Layout::open(root)?;
+    let _lease = files::supervisor_lease(&layout)?;
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let signal = cancel.clone();
+    let signals = tokio::spawn(async move {
+        tokio::select! {_=terminate.recv()=>{},_=interrupt.recv()=>{}};
+        signal.cancel();
+    });
+    let mut owned: Option<process::ProcessIdentity> = None;
+    let operation=async {
+        loop {
+            // Dropping an in-progress up kills/reaps its guarded startup child.
+            let (result,identity)=tokio::select!{biased;_=cancel.cancelled()=>return Ok::<(),anyhow::Error>(()),result=up_owned(root,node_binary,listen_host)=>result?};
+            owned=Some(identity);
+            println!("{}",json!({"event":"supervisorReady","node":result}));
+            loop {
+                tokio::select!{biased;_=cancel.cancelled()=>return Ok(()),_=tokio::time::sleep(Duration::from_secs(1))=>{}}
+                let alive={
+                    let _lock=layout.lock()?;
+                    if layout.pid().exists(){
+                        let record:Record=serde_json::from_slice(&files::read(&layout.pid(),1024*1024)?)?;
+                        if process::matches(&record.process)? {owned=Some(record.process);true}
+                        else {owned.as_ref().map(process::matches).transpose()?.unwrap_or(false)}
+                    }else{owned.as_ref().map(process::matches).transpose()?.unwrap_or(false)}
+                };
+                if !alive {println!("{}",json!({"event":"nodeExited","action":"restart"}));break;}
+            }
+        }
+    }.await;
+    // Memory retains the actual process birth identity even if the PID file
+    // disappears or becomes unreadable. The lease outlives final cleanup.
+    let stopped = async {
+        // A failed initial up has not adopted any daemon. Never stop a
+        // pre-existing node just because validation or binary lookup failed.
+        let Some(owned) = &owned else {
+            return Ok::<(), anyhow::Error>(());
+        };
+        let _lock = layout.lock()?;
+        stop_process(owned).await?;
+        if layout.pid().exists() {
+            let bytes = files::read(&layout.pid(), 1024 * 1024)?;
+            let record: Record = serde_json::from_slice(&bytes)?;
+            // A replacement not observed/adopted by this supervisor is not ours.
+            if record.process == *owned {
+                files::remove_if_unchanged(&layout.pid(), &bytes)?;
+            }
+        }
+        Ok::<(), anyhow::Error>(())
+    }
+    .await;
+    signals.abort();
+    match (operation, stopped) {
+        (Err(error), Err(stop)) => {
+            return Err(error.context(format!("shutdown also failed: {stop}")));
+        }
+        (Err(error), _) | (_, Err(error)) => return Err(error),
+        _ => {}
+    }
+    println!("{}", json!({"event":"supervisorStopped"}));
+    Ok(())
+}
+/// Remove only the stopped tree's chain storage, preserving identity/configuration.
+pub fn wipe(root: &Path) -> Result<Value> {
+    use fs2::FileExt;
+    let layout = Layout::open(root)?;
+    let _spawn = layout.lock()?;
+    let _supervisor = files::supervisor_lease(&layout)?;
+    files::desired_topology(&layout)?.validate()?;
+    if layout.pid().exists() {
+        let record: Record = serde_json::from_slice(&files::read(&layout.pid(), 1024 * 1024)?)?;
+        ensure!(
+            !process::matches(&record.process)?,
+            "node is running; stop it before wipe"
+        );
+    }
+    let container = layout.root.join("chains");
+    let directory = container.join("Nexus");
+    ensure!(
+        !container.is_symlink() && !directory.is_symlink(),
+        "refusing symlinked chain storage"
+    );
+    if !directory.exists() {
+        return Ok(json!({"wiped":false}));
+    }
+    ensure!(
+        directory.is_dir() && container.canonicalize()? == layout.root.join("chains"),
+        "unexpected chain storage location"
+    );
+    // This is the same lock file/inode used by NodeStore, even if PID records
+    // were removed or corrupted. O_NOFOLLOW refuses substituted lock symlinks.
+    let writer = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(directory.join(".lattice-node.lock"))?;
+    writer
+        .try_lock_exclusive()
+        .context("chain storage is in use; stop its writer before wipe")?;
+    // Detach the old directory atomically; a later external node opening the
+    // original path cannot have its newly created storage swept by this removal.
+    let detached = tempfile::Builder::new()
+        .prefix(".wipe-")
+        .tempdir_in(&container)?;
+    std::fs::rename(&directory, detached.path())?;
+    std::fs::File::open(&container)?.sync_all()?;
+    detached.close().context(
+        "detached storage could not be fully removed; inspect chains/.wipe-* before retry",
+    )?;
+    std::fs::File::open(&container)?.sync_all()?;
+    drop(writer);
+    Ok(json!({"wiped":true,"preserved":["identity","topology","specs","journals"]}))
+}
+
 /// Apply only hosted-chain changes to a live owned node while caller holds lock.
 pub(crate) async fn reconcile_hosted(
     layout: &files::Layout,

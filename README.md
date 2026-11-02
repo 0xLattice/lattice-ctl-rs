@@ -60,7 +60,7 @@ Local host lifecycle (Linux/macOS):
 ```
 
 `up` is serialized and idempotent; config changes restart the owned process.
-It currently starts a detached daemon without crash supervision. Service units, crash supervision and wipe remain pending; see `PORTING.md` for precise differences.
+Detached startup has no crash supervision. Use `up --foreground` to own restarts and graceful shutdown; see `PORTING.md` for precise differences.
 
 Keep host data outside source checkouts. Initialization also installs Git ignore
 guards inside managed identity/state/runtime/log directories; these do not remove
@@ -110,3 +110,15 @@ If a child update reports a pending configuration, its desired topology and
 artifacts remain available. Run `child apply` to retry live reconciliation, or
 `up` to start/restart with that desired configuration. Finish the pending update
 before creating or hosting another child.
+
+Foreground/service and storage lifecycle:
+
+```sh
+lattice --root "$HOME/.local/share/lattice" up --foreground --node-binary /usr/local/bin/lattice-node
+lattice --root "$HOME/.local/share/lattice" emit-systemd --binary /usr/local/bin/lattice --node-binary /usr/local/bin/lattice-node
+```
+
+Service output is printed only; no service is installed. Stop the foreground
+supervisor itself to keep the node down. With the supervisor and node stopped,
+`lattice --root HOST wipe` removes only the hosted tree's chain storage and
+preserves identity, configuration, specs and journals.

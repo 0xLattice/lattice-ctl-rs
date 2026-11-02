@@ -30,6 +30,17 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     #[cfg(unix)]
+    Wipe,
+    #[cfg(unix)]
+    EmitSystemd {
+        #[arg(long, default_value = "/usr/local/bin/lattice")]
+        binary: PathBuf,
+        #[arg(long, default_value = "/usr/local/bin/lattice-node")]
+        node_binary: PathBuf,
+        #[arg(long, default_value = "127.0.0.1")]
+        listen_host: std::net::IpAddr,
+    },
+    #[cfg(unix)]
     Child {
         #[command(subcommand)]
         command: ChildCommand,
@@ -50,6 +61,9 @@ enum Command {
     },
     Identity,
     Up {
+        #[cfg(unix)]
+        #[arg(long)]
+        foreground: bool,
         #[arg(long)]
         node_binary: PathBuf,
         #[arg(long, default_value = "127.0.0.1")]
@@ -268,6 +282,20 @@ async fn main() {
 async fn run(cli: Cli) -> Result<()> {
     match &cli.command {
         #[cfg(unix)]
+        Command::Wipe => return output(&lattice_ctl::lifecycle::wipe(&cli.root)?),
+        #[cfg(unix)]
+        Command::EmitSystemd {
+            binary,
+            node_binary,
+            listen_host,
+        } => {
+            print!(
+                "{}",
+                lattice_ctl::service::emit(&cli.root, binary, node_binary, *listen_host)?
+            );
+            return Ok(());
+        }
+        #[cfg(unix)]
         Command::Child { command } => {
             return match command {
                 ChildCommand::Host { path } => {
@@ -351,7 +379,14 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Up {
             node_binary,
             listen_host,
+            #[cfg(unix)]
+            foreground,
         } => {
+            #[cfg(unix)]
+            if *foreground {
+                return lattice_ctl::lifecycle::supervise(&cli.root, node_binary, *listen_host)
+                    .await;
+            }
             return output(
                 &lattice_ctl::lifecycle::up(&cli.root, node_binary, *listen_host).await?,
             );
@@ -394,6 +429,8 @@ async fn run(cli: Cli) -> Result<()> {
         &cli.chain,
     )?;
     match cli.command {
+        #[cfg(unix)]
+        Command::Wipe | Command::EmitSystemd { .. } => unreachable!(),
         #[cfg(unix)]
         Command::Child { .. } => unreachable!(),
         #[cfg(unix)]

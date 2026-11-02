@@ -31,3 +31,6 @@ pub mod mining;
 
 #[cfg(unix)]
 pub mod child;
+
+#[cfg(unix)]
+pub mod service;

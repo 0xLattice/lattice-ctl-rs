@@ -52,13 +52,12 @@ five-shape Swift oracle does not prove cross-chain exchange execution or full
 host operational parity. Runtime topology membership is decided by the node;
 the CLI validates the declarative topology before startup, and the daemon resolves hosted chains.
 
-Remaining complete Swift CLI scope:
+Remaining parity and platform-specific coverage:
 
-- `wipe`, foreground crash supervision and service role selection.
-- Mining service integration and automatic crash supervision.
+- Tree-wide status/health presentation (current status reads the selected chain).
 - Additional operator conveniences for removing child configuration; the pinned
   Swift child command itself exposes create/host/commit, not remove.
-- Systemd unit emission and platform-specific service support.
+- End-to-end systemd execution/cgroup tests and platform-specific service support.
 - End-to-end Swift topology/parser differential coverage and Windows process/ACL support.
 
 ## Local lifecycle slice
@@ -71,12 +70,11 @@ node overlay identity files remain distinct formats.
 
 A per-root advisory lock serializes startup/shutdown. The PID record includes
 kernel birth time and executable identity, checked before signalling; unrelated
-or reused PIDs are not treated as owned nodes. Linux opens a pidfd before validating process identity and signals through that
-handle; unavailable pidfd support fails closed. On macOS a narrow PID reuse race
+or reused PIDs are not treated as owned nodes. Linux records kernel boot identity plus process start ticks, opens a pidfd before
+validating that identity, and signals through the handle; unavailable pidfd support fails closed. On macOS a narrow PID reuse race
 remains between kernel inspection and signal delivery. Startup failures kill and reap the newly spawned child.
 Readiness requires this spawn's appended JSON ready event. Explicit `up` restarts on config/spec content changes; unchanged starts are
-idempotent. Child commands apply hosted configuration through the running node. There is no background
-crash supervisor yet. `down` allows 30 seconds before SIGKILL.
+idempotent. Child commands apply hosted configuration through the running node. Detached `up` has no crash supervisor; `up --foreground` owns restarts until signalled. `down` allows 30 seconds before SIGKILL.
 
 The topology model covers the pinned Swift schema and validation, but rejects
 unknown nested mining fields more strictly. Unsupported websocket, external
@@ -125,7 +123,7 @@ per request, allowing a node restart without restarting the miner.
 A separate exclusive miner-owner lease prevents concurrent foreground/background
 loops, and miner PID records reuse kernel birth/executable ownership checks.
 Status displays the currently configured plan; edits apply after stop/start.
-There is no crash supervisor or service integration yet. Forced SIGKILL of the
+Standalone `mine start` has no crash supervisor; emitted systemd units run `mine run` under the service manager's restart policy. Forced SIGKILL of the
 miner bypasses Rust destructors, so process-worker descendants cannot be promised
 cleanup in that case. Graceful cancellation is exercised, including a wedged
 process worker. Mining uses no private wallet key.
@@ -203,3 +201,51 @@ response beyond the production 30-second deadline; retry converges without
 recreating artifacts. It also checks `up` consumes pending desired topology.
 No production failpoint or weakened timeout is used. Evidence is recorded in
 `target/child-recovery-integration.json` with immutable binary hashes.
+
+## Foreground supervision, service output and wipe
+
+`up --foreground --node-binary PATH` holds one supervisor lease per host. It
+starts/adopts the owned daemon, retains its original kernel identity in memory,
+and restarts after exit. PID-file loss does not authorize a second startup or lose
+shutdown ownership. A failed initial validation never adopts or stops an existing
+daemon; cleanup preserves a replacement record it did not adopt. SIGINT/SIGTERM
+stops reconciliation and gracefully stops the owned node.
+`down` stops the daemon but a surviving supervisor will restart it, matching the
+pinned Swift behavior; stop the foreground supervisor to keep the host down.
+Configuration changes apply through explicit `up`/child commands or the next
+crash restart, not a continuous configuration watcher.
+
+`emit-systemd` prints tree and optional miner units without installing them,
+creating accounts or invoking a service manager. Units run foreground commands,
+use `KillMode=mixed` and allow 90 seconds for shutdown. They intentionally omit
+`ExecStop=... down`: signalling the supervisor avoids a down-versus-respawn race.
+Command paths are absolute, quoted, percent-escaped and reject control characters;
+the `:` command prefix disables environment expansion. Syntax follows the
+[systemd.service command-line rules](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#Command%20lines).
+Node output remains in the host log; supervisor/miner output is available to the
+service manager. Actual unit installation and systemd process/cgroup execution
+are outside the local validation performed here.
+
+`wipe` rejects a running supervisor/node and acquires the actual NodeStore writer
+lock even when the PID record is missing. It refuses symlinked managed storage,
+atomically detaches only `chains/Nexus`, and removes that detached directory while
+holding the locks. Identity, topology, child specs, pending intent and author
+journals remain. A deletion failure reports the detached `.wipe-*` directory for
+inspection; this is not a rollback promise. Locks cover cooperating processes;
+this does not claim immunity to hostile same-user filesystem races or nested
+mount points.
+
+`tools/supervision-integration.py` uses disposable host directories and copied
+binaries to check crash restart, duplicate supervisor refusal, graceful shutdown,
+writer-lock refusal with a missing PID file, preservation/idempotence/symlink
+checks for wipe, clean boot after wipe, and conditional service output with
+special path characters. It never installs a service or wipes user data.
+The report is `target/supervision-integration.json`; generated synthetic unit
+fixtures live in `target/systemd-fixtures` for `systemd-analyze verify`.
+
+The generated tree/miner fixtures passed `systemd-analyze verify` in a disposable
+Ubuntu 24.04 container; no units were installed or started. The Linux boot-identity/pidfd module and its tests were cross-compiled for Linux;
+runtime execution remains for Linux CI. The local daemon harness here runs on
+macOS. Linux PID records from older builds without boot identity no
+longer match and cannot authorize signalling; perform a controlled shutdown with
+the original service/tool before upgrading a running host.
