@@ -35,6 +35,11 @@ Transaction commands:
 Each requires `--key FILE`. Defaults query the committed nonce and relay fee;
 a pending first-signer transaction refuses automatic nonce selection. Explicit
 `--nonce` enables intentional replacement; the node decides fee/admission rules.
+When `--root/lattice.json` exists, transaction commands validate its committed
+hosted paths before loading a key or requesting nonce/fee data. An explicit RPC
+override or dry run does not bypass this membership check. Without a managed
+topology, standalone signing and explicit-endpoint operation remain available.
+
 `--dry-run` prints the signed submission payload without submitting. Supplying
 both `--nonce` and `--fee` makes dry-run independent of the node/cookie. Generated
 signatures and admission acknowledgements do not establish chain inclusion.

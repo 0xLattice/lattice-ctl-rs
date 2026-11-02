@@ -488,6 +488,15 @@ async fn run(cli: Cli) -> Result<()> {
             output(&rpc.request(method.parse()?, &path, body).await?)
         }
         Command::Tx { options, command } => {
+            // A configured root names the committed hosted tree, even when
+            // the caller overrides its RPC endpoint or requests a dry run.
+            if cli.root.join("lattice.json").try_exists()? {
+                let topology = lattice_ctl::topology::Topology::load(&cli.root)?;
+                anyhow::ensure!(
+                    topology.hosted_paths().iter().any(|path| path == chain),
+                    "{chain} is not in the tree"
+                );
+            }
             let signer = keys::load(
                 options
                     .key

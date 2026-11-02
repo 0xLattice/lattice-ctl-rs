@@ -301,3 +301,12 @@ configured identity port, and failure before host creation. The disposable
 discovery, repeatable flags, identity output and the existing restart/ownership
 regressions without public peer connections. No service installation or PATH
 search is added; emitted units retain explicit executable paths.
+
+## Managed transaction membership
+
+The executable applies the pinned Swift Tx.swift hosted-tree check before key
+loading and nonce/fee requests whenever the selected root has a topology. Root
+and listed children are allowed; unlisted paths fail before signing or RPC,
+including explicit RPC overrides and dry runs. Standalone operation without a
+managed topology remains a Rust CLI extension. Actual executable tests cover
+allowed signed paths, refusal, offline mode, and absence of key/network access.
