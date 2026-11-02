@@ -1,13 +1,20 @@
-use anyhow::{Context, Result, ensure};
+use anyhow::Result;
+#[cfg(unix)]
+use anyhow::{Context, ensure};
 use lattice_sdk::transactions::SigningAccount;
+#[cfg(unix)]
 use rand_core::RngCore;
-use serde::{Deserialize, Serialize};
+#[cfg(unix)]
+use serde::Deserialize;
+use serde::Serialize;
+use std::path::Path;
+#[cfg(unix)]
 use std::{
     fs::OpenOptions,
     io::{Read, Write},
-    path::Path,
 };
 
+#[cfg(unix)]
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct KeyFile {
