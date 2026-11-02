@@ -49,6 +49,10 @@ def main():
         detached=call('up','--node-binary',str(node));saved=record.read_bytes()
         execute('up','--foreground','--node-binary',str(base/'missing-node'),success=False)
         assert record.read_bytes()==saved and call('up','--node-binary',str(node))['pid']==detached['pid']
+        nonexec=base/'nonexecutable-node';nonexec.write_text('not executable');nonexec.chmod(0o600)
+        for invalid in [base,nonexec]:
+            execute('up','--foreground','--node-binary',str(invalid),success=False)
+            assert record.read_bytes()==saved and call('up','--node-binary',str(node))['pid']==detached['pid']
         call('status');record.unlink()
         try:execute('wipe',success=False)
         finally:record.write_bytes(saved);call('down')

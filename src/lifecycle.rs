@@ -138,6 +138,16 @@ async fn up_owned(
     let binary = node_binary
         .canonicalize()
         .context("locating lattice-node binary")?;
+    ensure!(
+        binary.is_file(),
+        "lattice-node binary must be a regular file"
+    );
+    use std::os::unix::ffi::OsStrExt;
+    let executable = std::ffi::CString::new(binary.as_os_str().as_bytes())?;
+    ensure!(
+        unsafe { libc::access(executable.as_ptr(), libc::X_OK) } == 0,
+        "lattice-node binary is not executable"
+    );
     if layout.pid().exists() {
         let bytes = files::read(&layout.pid(), 1024 * 1024)?;
         let record: Record = serde_json::from_slice(&bytes)?;
