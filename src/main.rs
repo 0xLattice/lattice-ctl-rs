@@ -58,6 +58,9 @@ enum Command {
         rpc_port: u16,
         #[arg(long)]
         no_default_peers: bool,
+        /// Overlay bootstrap peer as publicKey@host:port. Repeatable.
+        #[arg(long, conflicts_with = "no_default_peers")]
+        peer: Vec<String>,
     },
     Identity,
     Up {
@@ -65,7 +68,7 @@ enum Command {
         #[arg(long)]
         foreground: bool,
         #[arg(long)]
-        node_binary: PathBuf,
+        node_binary: Option<PathBuf>,
         #[arg(long, default_value = "127.0.0.1")]
         listen_host: std::net::IpAddr,
     },
@@ -391,12 +394,14 @@ async fn run(cli: Cli) -> Result<()> {
             listen,
             rpc_port,
             no_default_peers,
+            peer,
         } => {
-            return output(&lattice_ctl::lifecycle::init(
+            return output(&lattice_ctl::lifecycle::init_with_peers(
                 &cli.root,
                 *listen,
                 *rpc_port,
                 *no_default_peers,
+                peer,
             )?);
         }
         Command::Identity => return output(&lattice_ctl::lifecycle::identity(&cli.root)?),
@@ -406,13 +411,17 @@ async fn run(cli: Cli) -> Result<()> {
             #[cfg(unix)]
             foreground,
         } => {
+            let node_binary = match node_binary {
+                Some(path) => path.clone(),
+                None => lattice_ctl::lifecycle::discover_node_binary()?,
+            };
             #[cfg(unix)]
             if *foreground {
-                return lattice_ctl::lifecycle::supervise(&cli.root, node_binary, *listen_host)
+                return lattice_ctl::lifecycle::supervise(&cli.root, &node_binary, *listen_host)
                     .await;
             }
             return output(
-                &lattice_ctl::lifecycle::up(&cli.root, node_binary, *listen_host).await?,
+                &lattice_ctl::lifecycle::up(&cli.root, &node_binary, *listen_host).await?,
             );
         }
         Command::Down => return output(&lattice_ctl::lifecycle::down(&cli.root).await?),

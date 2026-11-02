@@ -15,7 +15,7 @@ pub(crate) fn encoded(path: &str) -> String {
     }
     result
 }
-fn peer(value: &str) -> Result<Value> {
+pub(super) fn peer(value: &str) -> Result<Value> {
     let (key, address) = value
         .split_once('@')
         .ok_or_else(|| anyhow::anyhow!("peer must be publicKey@host:port"))?;

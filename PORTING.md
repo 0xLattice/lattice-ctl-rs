@@ -279,3 +279,25 @@ five-second bound, wide heights, unreachable endpoint behavior and stale process
 ownership refusal. Localhost mocks cover stalled responses; no external nodes or
 wallets are used. Binary hashes appear in `target/status-integration.json`.
 Windows keeps explicit-chain RPC access; owned tree inspection requires Unix.
+
+### Bootstrap peer and identity parity
+
+Pinned `Sources/LatticeCtl/Main.swift:78-123` provides repeatable `init --peer`
+and renders the Nexus identity with the topology's listen port. Rust preserves
+that peer-list and address content, while retaining JSON output rather than
+Swift's prose: `publicKey`, `chainPath`, `listen`, and `peerString`. Omitted peers
+remain absent (default bootstrap behavior); an explicit empty list still uses
+Rust's `--no-default-peers` extension. Explicit peer validation reuses the daemon
+configuration parser and runs before file creation, stricter than Swift init's
+structural topology validation. Contradictory peer flags are rejected.
+
+Pinned `Sources/LatticeCtl/Tree.swift:17-27` defines executable sibling then
+`/usr/local/bin/lattice-node` discovery; Rust now uses that order when `up`
+omits `--node-binary`. Explicit paths keep the existing prevalidation before
+stopping an old daemon. Unit tests check candidate precedence, non-executable
+files, directories, missing candidates, persisted peer order, default omission,
+configured identity port, and failure before host creation. The disposable
+`tools/lifecycle-integration.py` exercises actual startup through sibling
+discovery, repeatable flags, identity output and the existing restart/ownership
+regressions without public peer connections. No service installation or PATH
+search is added; emitted units retain explicit executable paths.

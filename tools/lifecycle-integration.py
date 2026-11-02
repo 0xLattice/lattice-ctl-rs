@@ -28,10 +28,12 @@ def main():
         first = call('init', '--listen', str(listen), '--rpc-port', str(rpc), '--no-default-peers')
         try:
             assert call('identity')['publicKey'] == first['publicKey']
+            assert call('identity')['peerString'] == first['publicKey']+'@<this-host>:'+str(listen)
+            assert call('identity')['listen'] == listen
             for ignored in ['identity/Nexus.key','chains/Nexus/.cookie','run/lattice-node.pid','log/lattice-node.log']:
                 subprocess.run(['git','-C',str(host),'check-ignore','--quiet',ignored], check=True, capture_output=True)
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-                results = list(pool.map(lambda _: call('up', '--node-binary', str(node)), range(2)))
+                results = list(pool.map(lambda _: call('up'), range(2)))
             assert results[0]['pid'] == results[1]['pid']
             assert sum(row['started'] for row in results) == 1
             call('--chain','Nexus','status')
@@ -62,7 +64,16 @@ def main():
             assert replaced['started'] and replaced['pid'] != changed['pid']
             assert call('identity')['publicKey'] != first['publicKey']
             call('--chain','Nexus','status')
-            report['checks'] = ['canonical genesis init', 'private persistent identity', 'concurrent idempotent startup', 'authenticated status', 'idempotent stop', 'restart cookie rotation', 'changed topology restart', 'managed secrets ignored by Git', 'missing identity refuses startup', 'replacement identity restarts daemon']
+            peer_host = base/'peers'
+            peers = [first['publicKey']+'@127.0.0.1:'+str(listen), first['publicKey']+'@[::1]:'+str(listen)]
+            subprocess.run([str(ctl),'--root',str(peer_host),'init','--peer',peers[0],'--peer',peers[1]], check=True, capture_output=True, env=env)
+            assert json.loads((peer_host/'lattice.json').read_text())['peers'] == peers
+            invalid = base/'invalid'
+            refused = subprocess.run([str(ctl),'--root',str(invalid),'init','--peer','invalid'], capture_output=True, env=env)
+            assert refused.returncode and not invalid.exists()
+            refused = subprocess.run([str(ctl),'--root',str(invalid),'init','--peer',peers[0],'--no-default-peers'], capture_output=True, env=env)
+            assert refused.returncode and not invalid.exists()
+            report['checks'] = ['repeatable explicit peers persist in order', 'invalid or conflicting peers leave host untouched', 'configured identity peer string', 'sibling daemon discovery starts actual daemon', 'canonical genesis init', 'private persistent identity', 'concurrent idempotent startup', 'authenticated status', 'idempotent stop', 'restart cookie rotation', 'changed topology restart', 'managed secrets ignored by Git', 'missing identity refuses startup', 'replacement identity restarts daemon']
             report['passed'] = True
         finally:
             call('down')

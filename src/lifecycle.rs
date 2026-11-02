@@ -32,10 +32,30 @@ impl Drop for Starting {
     }
 }
 pub fn init(root: &Path, listen: u16, rpc: u16, no_default_peers: bool) -> Result<Value> {
+    init_with_peers(root, listen, rpc, no_default_peers, &[])
+}
+pub fn init_with_peers(
+    root: &Path,
+    listen: u16,
+    rpc: u16,
+    no_default_peers: bool,
+    peers: &[String],
+) -> Result<Value> {
+    ensure!(
+        !no_default_peers || peers.is_empty(),
+        "--peer conflicts with --no-default-peers"
+    );
+    for value in peers {
+        config::peer(value)?;
+    }
     let topology = Topology {
         listen,
         rpc,
-        peers: no_default_peers.then(|| ChainPeers::Nexus(vec![])),
+        peers: if peers.is_empty() {
+            no_default_peers.then(|| ChainPeers::Nexus(vec![]))
+        } else {
+            Some(ChainPeers::Nexus(peers.to_vec()))
+        },
         ..Default::default()
     };
     topology.validate()?;
@@ -77,12 +97,42 @@ pub fn init(root: &Path, listen: u16, rpc: u16, no_default_peers: bool) -> Resul
         &serde_json::to_vec_pretty(&topology)?,
         true,
     )?;
-    Ok(json!({"initialized":true,"publicKey":public_key}))
+    Ok(
+        json!({"initialized":true,"publicKey":public_key,"chainPath":"Nexus","listen":listen,"peerString":format!("{public_key}@<this-host>:{listen}")}),
+    )
 }
 pub fn identity(root: &Path) -> Result<Value> {
     let layout = Layout::open(root)?;
     let _lock = layout.lock()?;
-    Ok(json!({"publicKey":files::identity(&layout, false)?}))
+    let topology = Topology::load(&layout.root)?;
+    let public_key = files::identity(&layout, false)?;
+    Ok(
+        json!({"publicKey":public_key,"chainPath":"Nexus","listen":topology.listen,"peerString":format!("{public_key}@<this-host>:{}",topology.listen)}),
+    )
+}
+/// Resolve the pinned Swift candidate order without searching PATH.
+pub fn discover_node_binary() -> Result<std::path::PathBuf> {
+    let own = std::env::current_exe()?.canonicalize()?;
+    discover_in(&[
+        own.with_file_name("lattice-node"),
+        "/usr/local/bin/lattice-node".into(),
+    ])
+}
+fn discover_in(candidates: &[std::path::PathBuf]) -> Result<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    for candidate in candidates {
+        let Ok(path) = candidate.canonicalize() else {
+            continue;
+        };
+        if !path.is_file() {
+            continue;
+        }
+        let executable = std::ffi::CString::new(path.as_os_str().as_bytes())?;
+        if unsafe { libc::access(executable.as_ptr(), libc::X_OK) } == 0 {
+            return Ok(path);
+        }
+    }
+    anyhow::bail!("lattice-node not found beside lattice or in /usr/local/bin; pass --node-binary")
 }
 pub(crate) async fn stop_process(identity: &process::ProcessIdentity) -> Result<bool> {
     if !process::signal(identity, libc::SIGTERM)? {
@@ -453,6 +503,65 @@ mod tests {
         );
         assert!(init(&root, 4002, 8081, true).is_err());
         assert_eq!(Topology::load(&root).unwrap().listen, 4001);
+    }
+    #[test]
+    fn explicit_peers_and_identity_match_configured_listen() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("host");
+        let peers = vec![
+            format!("{}@127.0.0.1:4001", "11".repeat(32)),
+            format!("{}@[::1]:4002", "22".repeat(32)),
+        ];
+        let first = init_with_peers(&root, 4101, 8101, false, &peers).unwrap();
+        assert_eq!(
+            Topology::load(&root).unwrap().peers.unwrap().by_chain()["Nexus"],
+            peers
+        );
+        let identity = identity(&root).unwrap();
+        assert_eq!(identity["listen"], 4101);
+        assert_eq!(identity["chainPath"], "Nexus");
+        assert_eq!(
+            identity["peerString"],
+            format!("{}@<this-host>:4101", first["publicKey"].as_str().unwrap())
+        );
+        assert_eq!(first["peerString"], identity["peerString"]);
+        let invalid = temp.path().join("invalid");
+        assert!(init_with_peers(&invalid, 4101, 8101, false, &["bad-peer".into()]).is_err());
+        assert!(!invalid.exists());
+        assert!(init_with_peers(&invalid, 4101, 8101, true, &peers).is_err());
+        assert!(!invalid.exists());
+        let defaults = temp.path().join("defaults");
+        init(&defaults, 4001, 8080, false).unwrap();
+        assert!(Topology::load(&defaults).unwrap().peers.is_none());
+    }
+    #[test]
+    fn binary_discovery_order_and_executability() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let sibling = temp.path().join("sibling");
+        let fallback = temp.path().join("fallback");
+        for path in [&sibling, &fallback] {
+            std::fs::write(path, b"#!/bin/sh\nexit 0\n").unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let candidates = [sibling.clone(), fallback.clone()];
+        assert_eq!(
+            discover_in(&candidates).unwrap(),
+            sibling.canonicalize().unwrap()
+        );
+        std::fs::set_permissions(&sibling, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(
+            discover_in(&candidates).unwrap(),
+            fallback.canonicalize().unwrap()
+        );
+        std::fs::remove_file(&sibling).unwrap();
+        std::fs::create_dir(&sibling).unwrap();
+        assert_eq!(
+            discover_in(&candidates).unwrap(),
+            fallback.canonicalize().unwrap()
+        );
+        std::fs::remove_file(&fallback).unwrap();
+        assert!(discover_in(&candidates).is_err());
     }
     #[tokio::test]
     async fn stale_birth_never_signals_live_process() {

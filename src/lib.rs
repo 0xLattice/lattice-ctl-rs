@@ -15,6 +15,12 @@ pub mod lifecycle {
     pub fn init(_: &Path, _: u16, _: u16, _: bool) -> Result<Value> {
         bail!("host lifecycle requires Linux or macOS")
     }
+    pub fn init_with_peers(_: &Path, _: u16, _: u16, _: bool, _: &[String]) -> Result<Value> {
+        bail!("host lifecycle requires Linux or macOS")
+    }
+    pub fn discover_node_binary() -> Result<std::path::PathBuf> {
+        bail!("host lifecycle requires Linux or macOS")
+    }
     pub fn identity(_: &Path) -> Result<Value> {
         bail!("host lifecycle requires Linux or macOS")
     }

@@ -130,3 +130,17 @@ and bounded concurrency; one stalled child does not hide other available rows.
 An explicit `--chain Nexus` (or child path) selects the existing authenticated,
 single-chain JSON `/status` query. Pending configuration is shown separately from
 the committed tree; status does not establish network-wide or consensus truth.
+
+`init --peer PUBLIC_KEY@HOST:PORT --peer PUBLIC_KEY@HOST:PORT` writes an
+explicit Nexus bootstrap list in the supplied order; omitted peers retain the
+pinned defaults. `--peer` conflicts with `--no-default-peers`, and malformed
+peer endpoints fail before creating host files. `identity` and `init` return
+JSON including `publicKey`, `chainPath`, `listen`, and
+`peerString` (`PUBLIC_KEY@<this-host>:LISTEN_PORT`). Replace `<this-host>` with
+the externally reachable host when sharing the peer string; it is a placeholder,
+not an inferred external address.
+
+`up` can omit `--node-binary`: it searches beside the resolved CLI executable,
+then `/usr/local/bin/lattice-node`, matching pinned Swift's order. Candidates
+must be executable regular files. It does not search `PATH`; an explicit
+`--node-binary` remains authoritative and is never silently replaced.
