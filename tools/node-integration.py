@@ -36,7 +36,7 @@ try:
    digest=hashlib.sha256(bytes(work['prefix'])+work['nonce'].to_bytes(8,'big')).digest();assert digest==bytes(work['hash']) and int.from_bytes(digest,'big')<=int(template['searchTarget'],16)
    code,result=node.rpc('/mining/work',{'workID':template['workID'],'nonce':work['nonce']});assert code==200 and result['accepted'],(code,result)
    return result
-  report['initial_status']=cli(['status']);mine()
+  report['initial_status']=cli(['--chain','Nexus','status']);mine()
   tx=['tx','send','--key',str(key),'--to',shared.GENESIS,'--amount','23']
   drafted=cli(tx+['--dry-run']);assert drafted['transaction']['body']['nonce']=='0'
   report['submitted']=cli(tx)
@@ -44,7 +44,7 @@ try:
   mine();account=cli(['rpc','/api/state/account/'+identity['address']]);assert account['nonce']=='1' and account['balance']==str(2*1048576-23),account
   receiver=cli(['rpc','/api/state/account/'+shared.GENESIS]);assert receiver['balance']=='23',receiver
   cookie=node.cookie.read_bytes();node.stop();node.start();assert node.cookie.read_bytes()!=cookie
-  report['restarted_status']=cli(['status']);assert report['restarted_status']['height']=='2'
+  report['restarted_status']=cli(['--chain','Nexus','status']);assert report['restarted_status']['height']=='2'
   after=cli(tx+['--dry-run']);assert after['transaction']['body']['nonce']=='1'
   report['after_restart_nonce']=after['transaction']['body']['nonce'];report['account']=account;node.stop()
  assert snapshot()==before,'sources changed during integration run; repeat at stable checkpoint'

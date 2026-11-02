@@ -22,8 +22,8 @@ struct Cli {
     rpc: Option<String>,
     #[arg(long, global = true)]
     cookie: Option<PathBuf>,
-    #[arg(long, global = true, default_value = "Nexus")]
-    chain: String,
+    #[arg(long, global = true)]
+    chain: Option<String>,
     #[command(subcommand)]
     command: Command,
 }
@@ -76,7 +76,10 @@ enum Command {
         #[command(subcommand)]
         command: KeyCommand,
     },
-    Status,
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
     Rpc {
         path: String,
         #[arg(long, default_value="GET", value_parser=["GET","POST","DELETE"])]
@@ -280,6 +283,27 @@ async fn main() {
     }
 }
 async fn run(cli: Cli) -> Result<()> {
+    if let Command::Status { json } = &cli.command
+        && cli.chain.is_none()
+    {
+        #[cfg(unix)]
+        {
+            let report = lattice_ctl::status::read(&cli.root, cli.rpc.as_deref()).await?;
+            if *json {
+                return output(&report);
+            }
+            print!("{}", lattice_ctl::status::table(&report));
+            return Ok(());
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = json;
+            anyhow::bail!(
+                "tree-wide owned-process status requires Unix; use --chain Nexus status for an explicit RPC query"
+            );
+        }
+    }
+    let chain = cli.chain.as_deref().unwrap_or("Nexus");
     match &cli.command {
         #[cfg(unix)]
         Command::Wipe => return output(&lattice_ctl::lifecycle::wipe(&cli.root)?),
@@ -426,7 +450,7 @@ async fn run(cli: Cli) -> Result<()> {
         &base,
         cli.cookie
             .unwrap_or_else(|| cli.root.join("chains/Nexus/.cookie")),
-        &cli.chain,
+        chain,
     )?;
     match cli.command {
         #[cfg(unix)]
@@ -441,7 +465,9 @@ async fn run(cli: Cli) -> Result<()> {
         | Command::Up { .. }
         | Command::Down
         | Command::Topology => unreachable!(),
-        Command::Status => output(&rpc.request(reqwest::Method::GET, "/status", None).await?),
+        Command::Status { .. } => {
+            output(&rpc.request(reqwest::Method::GET, "/status", None).await?)
+        }
         Command::Rpc { path, method, body } => {
             let body = body
                 .map(|path| -> Result<Value> {
@@ -467,7 +493,7 @@ async fn run(cli: Cli) -> Result<()> {
                 Some(n) => n,
                 None => rpc.fee().await?,
             };
-            let body = transaction::compose(&signer, command.into(), &cli.chain, nonce, fee)?;
+            let body = transaction::compose(&signer, command.into(), chain, nonce, fee)?;
             let (signatures, payload) = transaction::signed(&signer, &body)?;
             if options.dry_run {
                 output(&payload)

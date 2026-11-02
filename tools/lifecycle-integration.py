@@ -34,7 +34,7 @@ def main():
                 results = list(pool.map(lambda _: call('up', '--node-binary', str(node)), range(2)))
             assert results[0]['pid'] == results[1]['pid']
             assert sum(row['started'] for row in results) == 1
-            call('status')
+            call('--chain','Nexus','status')
             cookie = (host/'chains/Nexus/.cookie').read_bytes()
             assert call('down')['stopped']
             assert not call('down')['stopped']
@@ -42,7 +42,7 @@ def main():
             assert restarted['started'] and restarted['pid'] != results[0]['pid']
             assert (host/'chains/Nexus/.cookie').read_bytes() != cookie
             assert call('identity')['publicKey'] == first['publicKey']
-            call('status')
+            call('--chain','Nexus','status')
             topology = json.loads((host/'lattice.json').read_text())
             topology['minRelayFee'] = 2
             (host/'lattice.json').write_text(json.dumps(topology))
@@ -61,7 +61,7 @@ def main():
             replaced = call('up','--node-binary',str(node))
             assert replaced['started'] and replaced['pid'] != changed['pid']
             assert call('identity')['publicKey'] != first['publicKey']
-            call('status')
+            call('--chain','Nexus','status')
             report['checks'] = ['canonical genesis init', 'private persistent identity', 'concurrent idempotent startup', 'authenticated status', 'idempotent stop', 'restart cookie rotation', 'changed topology restart', 'managed secrets ignored by Git', 'missing identity refuses startup', 'replacement identity restarts daemon']
             report['passed'] = True
         finally:

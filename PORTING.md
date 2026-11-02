@@ -54,7 +54,6 @@ the CLI validates the declarative topology before startup, and the daemon resolv
 
 Remaining parity and platform-specific coverage:
 
-- Tree-wide status/health presentation (current status reads the selected chain).
 - Additional operator conveniences for removing child configuration; the pinned
   Swift child command itself exposes create/host/commit, not remove.
 - End-to-end systemd execution/cgroup tests and platform-specific service support.
@@ -249,3 +248,34 @@ runtime execution remains for Linux CI. The local daemon harness here runs on
 macOS. Linux PID records from older builds without boot identity no
 longer match and cannot authorize signalling; perform a controlled shutdown with
 the original service/tool before upgrading a running host.
+
+## Tree-wide health presentation
+
+Default `status` now follows pinned Swift `Tree.swift` Status (lines 413–438) and
+its health helper (line 136): check recorded process ownership, enumerate Nexus
+and declared hosted children, and present phase, height, tip prefix and mempool
+count from `/health`. It never reads or requires the node cookie. The Rust SDK's
+public health client supplies bounded, typed reads, with decimal heights retained
+without narrowing to machine or JavaScript numbers. Requested/returned chain paths
+must agree. This is an operator snapshot, not admission/proof validation.
+
+`status --json` returns a structured tree report. Explicit global `--chain PATH`
+retains the prior authenticated single-chain `/status` JSON operation; no default
+chain option is implicitly mistaken for an explicit selection. Existing machine
+harnesses now select `--chain Nexus` for those single-chain fields.
+
+The tree probe uses at most 16 concurrent requests, each bounded at five seconds
+and 64 KiB, with a five-second overall budget. This is stricter than Swift's
+sequential per-path timeout. Completed rows remain visible when another request
+stalls. Missing/stale ownership yields down rows without RPC; ownership inspection
+errors are reported as unverified rather than claiming ownership or hiding health.
+Pending desired configuration is labelled while rows use committed topology.
+Terminal presentation replaces control characters in untrusted strings.
+
+`tools/status-integration.py` verifies actual root and awaiting-genesis child
+health with the cookie removed, default table and structured output, explicit-chain
+compatibility, encoded paths, no Authorization header, partial success within the
+five-second bound, wide heights, unreachable endpoint behavior and stale process
+ownership refusal. Localhost mocks cover stalled responses; no external nodes or
+wallets are used. Binary hashes appear in `target/status-integration.json`.
+Windows keeps explicit-chain RPC access; owned tree inspection requires Unix.

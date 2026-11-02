@@ -55,7 +55,7 @@ def main():
             execute(author,'child','create','Nexus/Alpha',success=False)
             assert (author/'lattice.json').read_bytes()==before and (author/'specs/Nexus%2FAlpha.json').read_bytes()==spec
             execute(parent,'mine','run','--once')
-            tip=call(parent,'status')['tipCID'];until(lambda:call(author,'status')['tipCID']==tip)
+            tip=call(parent,'--chain','Nexus','status')['tipCID'];until(lambda:call(author,'--chain','Nexus','status')['tipCID']==tip)
             journal=author/'run/child-Nexus%2FAlpha.json'
             def launch(label):
                 handle=(base/(label+'.log')).open('w');handles.append(handle)

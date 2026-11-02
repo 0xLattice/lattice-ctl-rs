@@ -37,7 +37,7 @@ def main():
                 os.kill(first,signal.SIGKILL)
                 until(lambda:record.exists() and json.loads(record.read_text())['process']['pid']!=first)
                 until(lambda:log.read_text().count('supervisorReady')>=2)
-                call('status');retained=json.loads(record.read_text())['process']['pid'];record.unlink()
+                call('--chain','Nexus','status');retained=json.loads(record.read_text())['process']['pid'];record.unlink()
                 time.sleep(1.2);assert supervisor.poll() is None and not record.exists()
                 supervisor.terminate();assert supervisor.wait(timeout=10)==0
                 probe=subprocess.run(['ps','-o','stat=','-p',str(retained)],capture_output=True,text=True)
@@ -53,7 +53,7 @@ def main():
         for invalid in [base,nonexec]:
             execute('up','--foreground','--node-binary',str(invalid),success=False)
             assert record.read_bytes()==saved and call('up','--node-binary',str(node))['pid']==detached['pid']
-        call('status');record.unlink()
+        call('--chain','Nexus','status');record.unlink()
         try:execute('wipe',success=False)
         finally:record.write_bytes(saved);call('down')
         (host/'specs').mkdir(exist_ok=True);(host/'specs/keep').write_text('fixture')
@@ -65,7 +65,7 @@ def main():
         outside=base/'outside';outside.mkdir();(outside/'keep').write_text('fixture')
         (host/'chains/Nexus').symlink_to(outside,target_is_directory=True)
         execute('wipe',success=False);assert (outside/'keep').exists();(host/'chains/Nexus').unlink()
-        call('up','--node-binary',str(node));call('status');call('down')
+        call('up','--node-binary',str(node));call('--chain','Nexus','status');call('down')
         units=execute('emit-systemd','--binary','/bin/true','--node-binary','/bin/true')
         assert 'ExecStart=:' in units and '--foreground' in units and 'ExecStop=' not in units
         assert '%%' in units and '$' in units and '\\"' in units and 'lattice-mine.service' not in units

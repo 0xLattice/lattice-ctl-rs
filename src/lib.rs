@@ -34,3 +34,6 @@ pub mod child;
 
 #[cfg(unix)]
 pub mod service;
+
+#[cfg(unix)]
+pub mod status;

@@ -9,7 +9,7 @@ reads and content-bound submission. No app-chain implementation is included.
 ```sh
 cargo build --locked --bin lattice
 ./target/debug/lattice key generate --out wallet.json
-./target/debug/lattice --rpc http://127.0.0.1:8080 --cookie data/.cookie status
+./target/debug/lattice --rpc http://127.0.0.1:8080 --cookie data/.cookie --chain Nexus status
 ./target/debug/lattice --rpc http://127.0.0.1:8080 --cookie data/.cookie \
   tx send --key wallet.json --to ADDRESS --amount 10
 ```
@@ -122,3 +122,11 @@ Service output is printed only; no service is installed. Stop the foreground
 supervisor itself to keep the node down. With the supervisor and node stopped,
 `lattice --root HOST wipe` removes only the hosted tree's chain storage and
 preserves identity, configuration, specs and journals.
+
+`status` prints the whole committed hosted tree using cookie-free local `/health`
+snapshots, distinguishing down, running-but-unreachable, and each chain's phase.
+`status --json` returns structured rows. Probes have a five-second overall budget
+and bounded concurrency; one stalled child does not hide other available rows.
+An explicit `--chain Nexus` (or child path) selects the existing authenticated,
+single-chain JSON `/status` query. Pending configuration is shown separately from
+the committed tree; status does not establish network-wide or consensus truth.
