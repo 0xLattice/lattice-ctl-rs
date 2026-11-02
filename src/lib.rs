@@ -28,3 +28,6 @@ pub mod lifecycle {
 
 #[cfg(unix)]
 pub mod mining;
+
+#[cfg(unix)]
+pub mod child;

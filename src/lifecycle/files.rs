@@ -137,3 +137,65 @@ pub fn identity(layout: &Layout, create: bool) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("invalid Ed25519 public key"))?
         .into())
 }
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PendingTopology {
+    version: u8,
+    operation: String,
+    topology: crate::topology::Topology,
+}
+pub fn pending_path(layout: &Layout) -> PathBuf {
+    layout.root.join("run/pending-topology.json")
+}
+pub fn ensure_no_pending(layout: &Layout) -> Result<()> {
+    ensure!(
+        !pending_path(layout).exists() && !pending_path(layout).is_symlink(),
+        "a child configuration is pending; finish it with child apply or up"
+    );
+    Ok(())
+}
+pub fn stage_topology(layout: &Layout, topology: &crate::topology::Topology) -> Result<()> {
+    topology.validate()?;
+    layout.ensure("run")?;
+    write(
+        &pending_path(layout),
+        &serde_json::to_vec_pretty(&PendingTopology {
+            version: 1,
+            operation: "apply-hosted-chains".into(),
+            topology: topology.clone(),
+        })?,
+        true,
+    )
+}
+pub fn desired_topology(layout: &Layout) -> Result<crate::topology::Topology> {
+    if !pending_path(layout).exists() {
+        return crate::topology::Topology::load(&layout.root);
+    }
+    let pending: PendingTopology =
+        serde_json::from_slice(&read(&pending_path(layout), 1024 * 1024)?)?;
+    ensure!(
+        pending.version == 1 && pending.operation == "apply-hosted-chains",
+        "unknown pending configuration operation"
+    );
+    pending.topology.validate()?;
+    Ok(pending.topology)
+}
+pub fn finish_topology(layout: &Layout, topology: &crate::topology::Topology) -> Result<()> {
+    if !pending_path(layout).exists() {
+        return Ok(());
+    }
+    let bytes = read(&pending_path(layout), 1024 * 1024)?;
+    ensure!(
+        serde_json::to_value(desired_topology(layout)?)? == serde_json::to_value(topology)?,
+        "pending topology changed during apply"
+    );
+    write(
+        &layout.root.join("lattice.json"),
+        &serde_json::to_vec_pretty(topology)?,
+        false,
+    )?;
+    remove_if_unchanged(&pending_path(layout), &bytes)?;
+    File::open(layout.root.join("run"))?.sync_all()?;
+    Ok(())
+}

@@ -62,8 +62,16 @@ impl LocalRpc {
         );
         let mut url = self.base.clone();
         url.set_path(path);
-        url.query_pairs_mut()
-            .append_pair("chainPath", &self.chain.join("/"));
+        // Host-wide routes reject query strings; child author POST bodies carry
+        // their own chainPath. Nexus reads use the endpoint's root default.
+        let host_wide = matches!(
+            path,
+            "/hosted-chains" | "/pins" | "/sweep" | "/child-blocks" | "/child-blocks/build"
+        );
+        if self.chain != ["Nexus"] && !host_wide {
+            url.query_pairs_mut()
+                .append_pair("chainPath", &self.chain.join("/"));
+        }
         let options = self.options()?;
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())

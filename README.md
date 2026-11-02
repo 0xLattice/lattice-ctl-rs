@@ -89,3 +89,24 @@ it never needs a wallet private key.
 the background with a private `log/mine.log`; duplicate starts fail. Stop/start
 to apply edited mining settings. An executable `mine.worker` path selects the
 shared process-worker protocol; relative paths resolve against the host root.
+
+Child operator commands:
+
+```sh
+lattice --root "$HOME/.local/share/lattice" child create Nexus/Alpha --reward 10 --block-time 1000
+lattice --root "$HOME/.local/share/lattice" child host Nexus/Existing
+lattice --root "$HOME/.local/share/lattice" child apply
+lattice --root "$HOME/.local/share/lattice" child commit Nexus/Alpha --key wallet.json
+```
+
+Creation also accepts `--spec`, `--premine`/`--premine-to`, repeatable
+`--policy-module`, and `--genesis-transactions`. Child configuration applies live
+without a daemon restart. Commit runs until the child is weighed; interrupting it
+preserves a journal so repeating the command resumes the same candidate and
+signed commitment. An explicit separate parent uses both `--parent-rpc` and
+`--parent-cookie`; both author and parent RPC remain local-only.
+
+If a child update reports a pending configuration, its desired topology and
+artifacts remain available. Run `child apply` to retry live reconciliation, or
+`up` to start/restart with that desired configuration. Finish the pending update
+before creating or hosting another child.

@@ -4,7 +4,7 @@ use anyhow::{Result, ensure};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::net::IpAddr;
-fn encoded(path: &str) -> String {
+pub(crate) fn encoded(path: &str) -> String {
     let mut result = String::new();
     for b in path.bytes() {
         if b.is_ascii_alphanumeric() || b"._-".contains(&b) {

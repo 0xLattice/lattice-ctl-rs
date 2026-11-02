@@ -25,4 +25,6 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "si
 tokio-util = "0.7"
 url = "2"
 [target.'cfg(unix)'.dependencies]
+lattice-node = { path = "../lattice-node-rs" }
+lattice-wasm = { path = "../lattice-rs/crates/lattice-wasm" }
 libc = "0.2"

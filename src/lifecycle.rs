@@ -1,5 +1,5 @@
 //! Local operator lifecycle. PID records include kernel process birth identity.
-mod config;
+pub(crate) mod config;
 pub(crate) mod files;
 pub(crate) mod process;
 use crate::topology::{ChainPeers, Topology};
@@ -16,6 +16,8 @@ use std::{
 };
 #[derive(Deserialize, Serialize)]
 struct Record {
+    #[serde(default)]
+    public_key: Option<String>,
     process: process::ProcessIdentity,
     config: Value,
     fingerprint: String,
@@ -120,7 +122,7 @@ pub async fn up(root: &Path, node_binary: &Path, listen_host: IpAddr) -> Result<
         layout.ensure(directory)?;
     }
     let public_key = files::identity(&layout, false)?;
-    let topology = Topology::load(&layout.root)?;
+    let topology = files::desired_topology(&layout)?;
     let (config, config_fingerprint) = config::build(&layout, &topology, listen_host)?;
     // Public identity binds key changes without persisting private material.
     let fingerprint = lattice_sdk::primitives::crypto::sha256(&serde_json::to_string(
@@ -133,8 +135,11 @@ pub async fn up(root: &Path, node_binary: &Path, listen_host: IpAddr) -> Result<
         let bytes = files::read(&layout.pid(), 1024 * 1024)?;
         let record: Record = serde_json::from_slice(&bytes)?;
         if process::matches(&record.process)? {
-            if record.fingerprint == fingerprint && Path::new(&record.process.executable) == binary
+            if record.fingerprint == fingerprint
+                && Path::new(&record.process.executable) == binary
+                && record.public_key.as_ref() == Some(&public_key)
             {
+                files::finish_topology(&layout, &topology)?;
                 return Ok(json!({"running":true,"started":false,"pid":record.process.pid}));
             }
             stop_process(&record.process).await?;
@@ -169,6 +174,7 @@ pub async fn up(root: &Path, node_binary: &Path, listen_host: IpAddr) -> Result<
         "spawned executable identity differs"
     );
     let record = Record {
+        public_key: Some(public_key),
         process: identity,
         config,
         fingerprint,
@@ -211,12 +217,79 @@ pub async fn up(root: &Path, node_binary: &Path, listen_host: IpAddr) -> Result<
         files::remove_if_unchanged(&layout.pid(), &bytes)?;
         return Err(error);
     }
+    files::finish_topology(&layout, &topology)?;
     let mut child = starting.0.take().unwrap();
     std::thread::spawn(move || {
         let _ = child.wait();
     });
     Ok(json!({"running":true,"started":true,"pid":pid}))
 }
+/// Apply only hosted-chain changes to a live owned node while caller holds lock.
+pub(crate) async fn reconcile_hosted(
+    layout: &files::Layout,
+    topology: &crate::topology::Topology,
+) -> Result<bool> {
+    if !layout.pid().exists() {
+        return Ok(false);
+    }
+    let bytes = files::read(&layout.pid(), 1024 * 1024)?;
+    let mut record: Record = serde_json::from_slice(&bytes)?;
+    if !process::matches(&record.process)? {
+        return Ok(false);
+    }
+    let listen: std::net::SocketAddr = record.config["listen"]
+        .as_str()
+        .context("recorded listen address missing")?
+        .parse()?;
+    let (desired, config_fingerprint) = config::build(layout, topology, listen.ip())?;
+    let fields = [
+        "hostChain",
+        "premineTo",
+        "genesisTransactions",
+        "chainPeer",
+        "policyModule",
+    ];
+    let static_config = |mut value: Value| {
+        for field in fields {
+            value.as_object_mut().unwrap().remove(field);
+        }
+        value
+    };
+    ensure!(
+        static_config(record.config.clone()) == static_config(desired.clone()),
+        "non-hosted configuration changed; run up to restart before applying children"
+    );
+    let public_key = files::identity(layout, false)?;
+    ensure!(
+        record.public_key.as_ref() == Some(&public_key),
+        "overlay identity changed or legacy process record; run up before child apply"
+    );
+    let fingerprint = lattice_sdk::primitives::crypto::sha256(&serde_json::to_string(
+        &json!({"configuration":config_fingerprint,"publicKey":public_key}),
+    )?);
+    let (body, _) = config::hosted(layout, topology)?;
+    let rpc = crate::rpc::LocalRpc::new(
+        &format!("http://127.0.0.1:{}", topology.rpc),
+        layout.cookie(),
+        "Nexus",
+    )?;
+    rpc.request(reqwest::Method::POST, "/hosted-chains", Some(body))
+        .await?;
+    ensure!(
+        process::matches(&record.process)?,
+        "node changed during hosted configuration reconciliation"
+    );
+    record.config = desired;
+    record.fingerprint = fingerprint;
+    files::write(
+        &layout.config(),
+        &serde_json::to_vec_pretty(&record.config)?,
+        false,
+    )?;
+    files::write(&layout.pid(), &serde_json::to_vec(&record)?, false)?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,6 +321,7 @@ mod tests {
             .unwrap();
         identity.birth.push_str("-stale");
         let record = Record {
+            public_key: None,
             process: identity,
             config: json!({}),
             fingerprint: String::new(),

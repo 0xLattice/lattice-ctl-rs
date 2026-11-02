@@ -30,6 +30,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     #[cfg(unix)]
+    Child {
+        #[command(subcommand)]
+        command: ChildCommand,
+    },
+    #[cfg(unix)]
     Mine {
         #[command(subcommand)]
         command: MineCommand,
@@ -85,6 +90,47 @@ enum MineCommand {
     },
     Stop,
     Status,
+}
+
+#[cfg(unix)]
+#[derive(Subcommand)]
+enum ChildCommand {
+    Host {
+        path: String,
+    },
+    Apply,
+    Create {
+        path: String,
+        #[arg(long)]
+        spec: Option<PathBuf>,
+        #[arg(long)]
+        policy_module: Vec<PathBuf>,
+        #[arg(long, default_value_t = 10000)]
+        block_time: u64,
+        #[arg(long, default_value_t = 1000)]
+        reward: u64,
+        #[arg(long, default_value_t = 0)]
+        premine: u64,
+        #[arg(long)]
+        premine_to: Option<String>,
+        #[arg(long)]
+        genesis_transactions: Option<PathBuf>,
+    },
+    Commit {
+        path: String,
+        #[arg(long)]
+        key: PathBuf,
+        #[arg(long)]
+        fee: Option<u64>,
+        #[arg(long)]
+        parent_rpc: Option<String>,
+        #[arg(long)]
+        parent_cookie: Option<PathBuf>,
+        #[arg(long, default_value_t = 3000)]
+        poll_ms: u64,
+        #[arg(long)]
+        timeout_seconds: Option<u64>,
+    },
 }
 #[derive(Subcommand)]
 enum KeyCommand {
@@ -222,6 +268,63 @@ async fn main() {
 async fn run(cli: Cli) -> Result<()> {
     match &cli.command {
         #[cfg(unix)]
+        Command::Child { command } => {
+            return match command {
+                ChildCommand::Host { path } => {
+                    output(&lattice_ctl::child::host(&cli.root, path).await?)
+                }
+                ChildCommand::Apply => output(&lattice_ctl::child::apply(&cli.root).await?),
+                ChildCommand::Create {
+                    path,
+                    spec,
+                    policy_module,
+                    block_time,
+                    reward,
+                    premine,
+                    premine_to,
+                    genesis_transactions,
+                } => output(
+                    &lattice_ctl::child::create(
+                        &cli.root,
+                        lattice_ctl::child::Create {
+                            path: path.clone(),
+                            spec: spec.clone(),
+                            policy_modules: policy_module.clone(),
+                            block_time: *block_time,
+                            reward: *reward,
+                            premine: *premine,
+                            premine_to: premine_to.clone(),
+                            genesis_transactions: genesis_transactions.clone(),
+                        },
+                    )
+                    .await?,
+                ),
+                ChildCommand::Commit {
+                    path,
+                    key,
+                    fee,
+                    parent_rpc,
+                    parent_cookie,
+                    poll_ms,
+                    timeout_seconds,
+                } => {
+                    lattice_ctl::child::commit(
+                        &cli.root,
+                        lattice_ctl::child::Commit {
+                            path: path.clone(),
+                            key: key.clone(),
+                            fee: *fee,
+                            parent_rpc: parent_rpc.clone(),
+                            parent_cookie: parent_cookie.clone(),
+                            poll_ms: *poll_ms,
+                            timeout_seconds: *timeout_seconds,
+                        },
+                    )
+                    .await
+                }
+            };
+        }
+        #[cfg(unix)]
         Command::Mine { command } => {
             return match command {
                 MineCommand::Start => output(&lattice_ctl::mining::start(&cli.root).await?),
@@ -291,6 +394,8 @@ async fn run(cli: Cli) -> Result<()> {
         &cli.chain,
     )?;
     match cli.command {
+        #[cfg(unix)]
+        Command::Child { .. } => unreachable!(),
         #[cfg(unix)]
         Command::Mine { .. } => unreachable!(),
         Command::Key { .. }
