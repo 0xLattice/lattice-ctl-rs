@@ -195,6 +195,12 @@ impl Topology {
         {
             ensure!(port > 0 && ports.insert(port), "port is zero or used twice");
         }
+        if let Some(address) = &self.external_address {
+            ensure!(
+                address.parse::<std::net::IpAddr>().is_ok(),
+                "externalAddress must be an IP literal"
+            );
+        }
         if let Some(port) = self.web_socket.filter(|p| *p != 0) {
             ensure!(ports.insert(port), "webSocket port is used twice");
         }
@@ -225,6 +231,15 @@ impl Topology {
                 "publicReadURL must be ASCII HTTP(S) without credentials, query or fragment"
             );
         }
+        ensure!(
+            self.serving_max_concurrent.is_none_or(|n| n > 0),
+            "servingMaxConcurrent must be positive"
+        );
+        ensure!(
+            self.serving_max_in_flight_volume_bytes
+                .is_none_or(|n| n > 0),
+            "servingMaxInFlightVolumeBytes must be positive"
+        );
         ensure!(
             self.max_acquisition_bytes
                 .is_none_or(|n| n >= 64 * 1024 * 1024),
@@ -270,31 +285,8 @@ impl Topology {
         paths.extend(self.hosted_chains.clone().unwrap_or_default());
         paths
     }
-    /// Refuse settings the current Rust daemon cannot honor, rather than dropping
-    /// operator intent while translating the compatible topology model.
+    /// All currently modeled topology options have daemon mappings.
     pub fn ensure_daemon_supported(&self) -> Result<()> {
-        ensure!(
-            self.web_socket.is_none_or(|p| p == 0),
-            "Rust daemon WebSocket listener is not implemented"
-        );
-        ensure!(
-            self.external_address.is_none(),
-            "Rust daemon externalAddress configuration is not implemented"
-        );
-        ensure!(
-            self.serving_max_concurrent.is_none()
-                && self.serving_max_in_flight_volume_bytes.is_none()
-                && self.max_acquisition_bytes.is_none(),
-            "Rust daemon serving/acquisition limit configuration is not implemented"
-        );
-        ensure!(
-            self.finality_window.is_none_or(|n| n == 0)
-                && self
-                    .finality_windows
-                    .as_ref()
-                    .is_none_or(|m| m.values().all(|n| *n == 0)),
-            "Rust daemon finality-window configuration is not implemented"
-        );
-        Ok(())
+        self.validate()
     }
 }

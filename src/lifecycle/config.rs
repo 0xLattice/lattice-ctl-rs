@@ -158,6 +158,30 @@ pub fn build(layout: &Layout, topology: &Topology, listen_host: IpAddr) -> Resul
         value[k] = v.clone();
     }
     for (k, v) in [
+        (
+            "servingMaxConcurrent",
+            topology.serving_max_concurrent.map(|n| json!(n)),
+        ),
+        (
+            "servingMaxInFlightVolumeBytes",
+            topology
+                .serving_max_in_flight_volume_bytes
+                .map(|n| json!(n)),
+        ),
+        (
+            "maxAcquisitionBytes",
+            topology.max_acquisition_bytes.map(|n| json!(n)),
+        ),
+        ("webSocketPort", topology.web_socket.map(|n| json!(n))),
+        (
+            "externalAddress",
+            topology.external_address.as_ref().map(|s| json!(s)),
+        ),
+        ("finalityWindow", topology.finality_window.map(|n| json!(n))),
+        (
+            "finalityWindows",
+            topology.finality_windows.as_ref().map(|m| json!(m)),
+        ),
         ("state", topology.state.as_ref().map(|s| json!(s))),
         (
             "blockBodies",
@@ -204,4 +228,34 @@ pub fn build(layout: &Layout, topology: &Topology, listen_host: IpAddr) -> Resul
         &json!({"config":value,"inputs":inputs}),
     )?);
     Ok((value, fingerprint))
+}
+
+#[cfg(test)]
+mod overlay_tests {
+    use super::*;
+    #[test]
+    fn browser_transport_options_survive_managed_configuration() {
+        let temp = tempfile::tempdir().unwrap();
+        let layout = Layout::open(temp.path()).unwrap();
+        let mut topology = Topology {
+            web_socket: Some(4012),
+            external_address: Some("2001:db8::7".into()),
+            peers: Some(crate::topology::ChainPeers::ByChain(
+                std::collections::BTreeMap::from([("Nexus".into(), vec![])]),
+            )),
+            ..Default::default()
+        };
+        let (value, _) = build(&layout, &topology, "127.0.0.1".parse().unwrap()).unwrap();
+        assert_eq!(value["webSocketPort"], 4012);
+        assert_eq!(value["externalAddress"], "2001:db8::7");
+        topology.web_socket = Some(0);
+        assert_eq!(
+            build(&layout, &topology, "127.0.0.1".parse().unwrap())
+                .unwrap()
+                .0["webSocketPort"],
+            0
+        );
+        topology.external_address = Some("example.invalid".into());
+        assert!(topology.validate().is_err());
+    }
 }

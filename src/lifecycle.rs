@@ -601,7 +601,26 @@ mod tests {
         assert!(Layout::open(temp.path()).unwrap().lock().is_err());
     }
     #[test]
-    fn topology_rejects_unhosted_peer_and_unsupported_transport() {
+    fn resource_policy_is_forwarded_to_daemon_and_validated() {
+        let temp = tempfile::tempdir().unwrap();
+        init(temp.path(), 4001, 8080, true).unwrap();
+        let layout = Layout::open(temp.path()).unwrap();
+        let mut topology = Topology::load(temp.path()).unwrap();
+        topology.serving_max_concurrent = Some(2);
+        topology.serving_max_in_flight_volume_bytes = Some(1024 * 1024);
+        topology.max_acquisition_bytes = Some(64 * 1024 * 1024);
+        let (config, _) = config::build(&layout, &topology, "127.0.0.1".parse().unwrap()).unwrap();
+        assert_eq!(config["servingMaxConcurrent"], 2);
+        assert_eq!(config["servingMaxInFlightVolumeBytes"], 1024 * 1024);
+        assert_eq!(config["maxAcquisitionBytes"], 64 * 1024 * 1024);
+        topology.serving_max_in_flight_volume_bytes = Some(0);
+        assert!(topology.validate().is_err());
+        topology.serving_max_in_flight_volume_bytes = Some(1);
+        topology.max_acquisition_bytes = Some(64 * 1024 * 1024 - 1);
+        assert!(topology.validate().is_err());
+    }
+    #[test]
+    fn topology_rejects_unhosted_peer_and_invalid_serving_limit() {
         let mut topology = Topology {
             peers: Some(ChainPeers::ByChain(std::collections::BTreeMap::from([(
                 "Nexus/Missing".into(),
@@ -611,8 +630,8 @@ mod tests {
         };
         assert!(topology.validate().is_err());
         topology.peers = None;
-        topology.web_socket = Some(9000);
-        assert!(topology.validate().is_ok());
+        topology.serving_max_concurrent = Some(0);
+        assert!(topology.validate().is_err());
         assert!(topology.ensure_daemon_supported().is_err());
     }
 }

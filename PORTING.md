@@ -77,7 +77,7 @@ idempotent. Child commands apply hosted configuration through the running node. 
 
 The topology model covers the pinned Swift schema and validation, but rejects
 unknown nested mining fields more strictly. Unsupported websocket, external
-address, serving/acquisition limits, and nonzero finality options fail explicitly
+address and serving/acquisition limits fail explicitly
 rather than being dropped. `up` does not start miners; use the explicit `mine` commands.
 Overlay listening defaults to loopback; use `--listen-host 0.0.0.0` explicitly
 for external peers. Absent peer configuration uses pinned public bootstrap peers;
@@ -310,3 +310,20 @@ and listed children are allowed; unlisted paths fail before signing or RPC,
 including explicit RPC overrides and dry runs. Standalone operation without a
 managed topology remains a Rust CLI extension. Actual executable tests cover
 allowed signed paths, refusal, offline mode, and absence of key/network access.
+
+Finality defaults and per-chain overrides now pass through to the daemon.
+`finalityWindow` supplies the default; `finalityWindows` selects exact paths,
+with zero disabling that path. Changes require `up` to reconcile/restart the
+process. The lifecycle integration verifies actual daemon root and hosted-chain
+read responses, including disabled overrides. See sibling node
+`docs/FINALITY.md` for the original Swift decision vectors and cursor tests.
+
+Managed `webSocket` and `externalAddress` settings now reach the Rust daemon's
+paired WebSocket/STUN listener and advertised TCP endpoint. External addresses
+must be IP literals; zero disables the browser listener. Serving/acquisition
+limit settings remain explicitly refused until their node integration is ported.
+
+Resource configuration forwards `servingMaxConcurrent`,
+`servingMaxInFlightVolumeBytes`, and `maxAcquisitionBytes` to the daemon. Serving
+limits must be positive; acquisition capacity must fit one 64 MiB session.
+Tests verify actual generated configuration and invalid boundaries.

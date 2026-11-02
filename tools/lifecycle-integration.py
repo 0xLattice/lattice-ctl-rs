@@ -47,9 +47,16 @@ def main():
             call('--chain','Nexus','status')
             topology = json.loads((host/'lattice.json').read_text())
             topology['minRelayFee'] = 2
+            topology['finalityWindow'] = 3
+            topology['finalityWindows'] = {'Nexus/A':0, 'Nexus/B':2}
             (host/'lattice.json').write_text(json.dumps(topology))
             changed = call('up', '--node-binary', str(node))
             assert changed['started'] and changed['pid'] != restarted['pid']
+            assert call('rpc','/api/chain/info')['finalityWindow'] == '3'
+            call('child','host','Nexus/A')
+            call('child','host','Nexus/B')
+            assert 'finalityWindow' not in call('--chain','Nexus/A','rpc','/api/chain/info')
+            assert call('--chain','Nexus/B','rpc','/api/chain/info')['finalityWindow'] == '2'
             key_path = host/'identity/Nexus.key'
             prior_seed = key_path.read_bytes()
             key_path.unlink()
@@ -73,7 +80,7 @@ def main():
             assert refused.returncode and not invalid.exists()
             refused = subprocess.run([str(ctl),'--root',str(invalid),'init','--peer',peers[0],'--no-default-peers'], capture_output=True, env=env)
             assert refused.returncode and not invalid.exists()
-            report['checks'] = ['repeatable explicit peers persist in order', 'invalid or conflicting peers leave host untouched', 'configured identity peer string', 'sibling daemon discovery starts actual daemon', 'canonical genesis init', 'private persistent identity', 'concurrent idempotent startup', 'authenticated status', 'idempotent stop', 'restart cookie rotation', 'changed topology restart', 'managed secrets ignored by Git', 'missing identity refuses startup', 'replacement identity restarts daemon']
+            report['checks'] = ['repeatable explicit peers persist in order', 'invalid or conflicting peers leave host untouched', 'configured identity peer string', 'sibling daemon discovery starts actual daemon', 'canonical genesis init', 'private persistent identity', 'concurrent idempotent startup', 'authenticated status', 'idempotent stop', 'restart cookie rotation', 'changed topology restart', 'managed secrets ignored by Git', 'missing identity refuses startup', 'replacement identity restarts daemon', 'daemon root finality setting', 'hosted disabled and explicit finality overrides']
             report['passed'] = True
         finally:
             call('down')
