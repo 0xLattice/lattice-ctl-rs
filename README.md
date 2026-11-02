@@ -47,3 +47,23 @@ Requests have 30-second deadlines and bounded JSON responses.
 
 See [PORTING.md](PORTING.md) for validation, deliberate safety differences, and
 the remaining host lifecycle/mining/child-management CLI work.
+
+Local host lifecycle (Linux/macOS):
+
+```sh
+./target/debug/lattice --root "$HOME/.local/share/lattice" init --no-default-peers
+./target/debug/lattice --root "$HOME/.local/share/lattice" identity
+./target/debug/lattice --root "$HOME/.local/share/lattice" topology
+./target/debug/lattice --root "$HOME/.local/share/lattice" up --node-binary ../lattice-node-rs/target/debug/lattice-node
+./target/debug/lattice --root "$HOME/.local/share/lattice" status
+./target/debug/lattice --root "$HOME/.local/share/lattice" down
+```
+
+`up` is serialized and idempotent; config changes restart the owned process.
+It currently starts a detached daemon without crash supervision. Mining commands,
+service units and wipe remain pending; see `PORTING.md` for precise differences.
+
+Keep host data outside source checkouts. Initialization also installs Git ignore
+guards inside managed identity/state/runtime/log directories; these do not remove
+secrets that were already tracked. Only `init` creates an overlay key. Restore a
+missing identity from backup; `up` and `identity` never silently replace it.

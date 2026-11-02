@@ -6,9 +6,8 @@ References are restricted to 0xLattice:
   `Sources/LatticeCtl/{Key,Tx,RPC,Main}.swift` and `LatticeCtlCore/Topology.swift`.
 - `Lattice` at `dda2d852429a27be6043599b63bde81530cd9514`.
 
-This new separate local repository provides `lattice-ctl` as a library and
-`lattice` as a binary, using sibling `lattice-sdk-rs`. There is no published
-crate or remote commit pin yet. The reference node MIT license is preserved.
+This separate repository provides `lattice-ctl` as a library and
+`lattice` as a binary, using sibling `lattice-sdk-rs`. Cargo dependencies use the sibling checkout layout; crates.io releases are not provided. The reference node MIT license is preserved.
 
 ## Current behavior and evidence
 
@@ -51,18 +50,56 @@ Transaction authoring does not promise successful admission: current state,
 parent receipts, policy, limits and signatures are checked by the node. The
 five-shape Swift oracle does not prove cross-chain exchange execution or full
 host operational parity. Runtime topology membership is decided by the node;
-this initial CLI does not reconcile or enforce the complete declarative topology.
+the CLI validates the declarative topology before startup, and the daemon resolves hosted chains.
 
 Remaining complete Swift CLI scope:
 
-- `init`, `up`, `down`, `wipe`, process supervision, locks, PID/config reconciliation
-  and role selection from the full validated topology model.
-- Overlay `identity` and managed identity/custody lifecycle.
+- `wipe`, foreground crash supervision and service role selection.
 - `mine` coordinator/worker process lifecycle and declared recipient plans.
-- `child` add/remove, policy/premine/genesis-file handling and remote-author flows.
+- `child` add/remove and remote-author flows; hosted spec/premine/genesis/policy
+  files already translate into daemon configuration, but dynamic reconciliation
+  currently restarts the node rather than calling the hosted-chain endpoint.
 - Systemd unit emission and platform-specific service support.
-- Full topology validation/migration, end-to-end Swift CLI comparison, and Windows
-  permissions/process behavior.
+- End-to-end Swift topology/parser differential coverage and Windows process/ACL support.
 
-These are explicit remaining deliverables; this repository does not claim a
-complete replacement for the Swift operator front door yet.
+## Local lifecycle slice
+
+`init`, `identity`, `topology`, `up --node-binary PATH`, and `down` use the Swift
+host directory layout. Initialization preserves existing files, creates a private
+raw overlay seed, and builds canonical Nexus genesis using production validation
+and Cashew serialization, asserting the pinned genesis CID. Wallet files and
+node overlay identity files remain distinct formats.
+
+A per-root advisory lock serializes startup/shutdown. The PID record includes
+kernel birth time and executable identity, checked before signalling; unrelated
+or reused PIDs are not treated as owned nodes. Linux opens a pidfd before validating process identity and signals through that
+handle; unavailable pidfd support fails closed. On macOS a narrow PID reuse race
+remains between kernel inspection and signal delivery. Startup failures kill and reap the newly spawned child.
+Readiness requires this spawn's appended JSON ready event. Config/spec content
+changes restart the node; unchanged starts are idempotent. There is no background
+crash supervisor yet. `down` allows 30 seconds before SIGKILL.
+
+The topology model covers the pinned Swift schema and validation, but rejects
+unknown nested mining fields more strictly. Unsupported websocket, external
+address, serving/acquisition limits, and nonzero finality options fail explicitly
+rather than being dropped. Mining declarations are parsed but do not start miners.
+Overlay listening defaults to loopback; use `--listen-host 0.0.0.0` explicitly
+for external peers. Absent peer configuration uses pinned public bootstrap peers;
+`init --no-default-peers` creates an isolated explicit empty list.
+
+`python3.12 tools/lifecycle-integration.py` copies built CLI/node binaries into
+an isolated temporary directory and verifies canonical initialization, concurrent
+idempotent starts, authenticated status, stop/restart, cookie rotation, persistent
+identity, and changed-topology restart. It sets `LATTICE_FORBID_DEFAULT_PEERS=1`.
+The report contains binary hashes at `target/lifecycle-integration.json`. Unit
+tests cover private/exclusive initialization, managed symlink rejection, stale
+birth identity without signalling the live test process, and unsupported topology.
+These checks do not claim full Swift lifecycle parity or lattice-formal coverage
+for OS process control.
+
+Only initialization creates a missing overlay key. Startup fingerprints include
+its derived public key so replacing the key restarts a live daemon. Missing keys
+fail closed until restored. Initialization installs nested Git ignore guards in
+managed identity/state/runtime/log directories before generating secrets; these
+cannot remove secrets already tracked by Git. The lifecycle harness checks these
+exclusions, missing-key refusal and live identity replacement.

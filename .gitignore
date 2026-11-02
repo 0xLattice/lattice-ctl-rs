@@ -1,2 +1,9 @@
 /target/
 __pycache__/
+
+# Operator host state and private identities (including the documented example).
+/identity/
+/chains/
+/run/
+/log/
+/host/

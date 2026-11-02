@@ -29,6 +29,25 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Initialize local topology and a private overlay identity.
+    Init {
+        #[arg(long, default_value_t = 4001)]
+        listen: u16,
+        #[arg(long, default_value_t = 8080)]
+        rpc_port: u16,
+        #[arg(long)]
+        no_default_peers: bool,
+    },
+    Identity,
+    Up {
+        #[arg(long)]
+        node_binary: PathBuf,
+        #[arg(long, default_value = "127.0.0.1")]
+        listen_host: std::net::IpAddr,
+    },
+    Down,
+    Topology,
+
     Key {
         #[command(subcommand)]
         command: KeyCommand,
@@ -182,6 +201,36 @@ async fn main() {
     }
 }
 async fn run(cli: Cli) -> Result<()> {
+    match &cli.command {
+        Command::Init {
+            listen,
+            rpc_port,
+            no_default_peers,
+        } => {
+            return output(&lattice_ctl::lifecycle::init(
+                &cli.root,
+                *listen,
+                *rpc_port,
+                *no_default_peers,
+            )?);
+        }
+        Command::Identity => return output(&lattice_ctl::lifecycle::identity(&cli.root)?),
+        Command::Up {
+            node_binary,
+            listen_host,
+        } => {
+            return output(
+                &lattice_ctl::lifecycle::up(&cli.root, node_binary, *listen_host).await?,
+            );
+        }
+        Command::Down => return output(&lattice_ctl::lifecycle::down(&cli.root).await?),
+        Command::Topology => {
+            return output(&serde_json::to_value(
+                lattice_ctl::topology::Topology::load(&cli.root)?,
+            )?);
+        }
+        _ => {}
+    }
     if let Command::Key { command } = cli.command {
         return match command {
             KeyCommand::Generate { out } => output(&keys::generate(&out)?),
@@ -212,7 +261,12 @@ async fn run(cli: Cli) -> Result<()> {
         &cli.chain,
     )?;
     match cli.command {
-        Command::Key { .. } => unreachable!(),
+        Command::Key { .. }
+        | Command::Init { .. }
+        | Command::Identity
+        | Command::Up { .. }
+        | Command::Down
+        | Command::Topology => unreachable!(),
         Command::Status => output(&rpc.request(reqwest::Method::GET, "/status", None).await?),
         Command::Rpc { path, method, body } => {
             let body = body
