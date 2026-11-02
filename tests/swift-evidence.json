@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "cases": 80,
+  "lattice_revision": "dda2d852429a27be6043599b63bde81530cd9514",
+  "node_revision": "3df9e0a786c7b103a3da88d1c3881efc81706255",
+  "corpus_sha256": "4240aa45a2e60ec1de9f9711ca6dec567198c930bc2598c30fa532b41de2e72e",
+  "source_sha256": {
+    "src/transaction.rs": "e1979302f88d49b131f96366d14ac1bcf976316c67861b1fb5333b69ba9ced84",
+    "examples/swift_samples.rs": "010f77cfb6dca1c4e15aba4e085825e6c3073bc34d99b3dcac9eabdc4a23a6f9",
+    "tests/swift-oracle.swift": "4f7b680249ddfc67a95f3b416d1c11a4040d9f5dc9d4e7847ab578595f86eb39",
+    "tools/swift-check.py": "11a89f32ea116cdba03e019adbb26ac4e9bcc4230e3bca7307d3ee7d47f8ec7b"
+  },
+  "method": "Actual unchanged Swift Lattice/Crypto/Multikey; fixed seeds and five action shapes mirror LatticeCtl/Tx.swift assembly. Compare key/address/bodyCID/preimage exactly; cross-verify signatures and bind each transaction CID to its actual signature. Swift native signatures may be randomized. Does not execute the full Swift CLI."
+}
